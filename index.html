@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC Walkie-Talkie</title>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database.js"></script>
+
+    <script>
+        let localStream;
+        let peerConnection;
+        let firebaseConfig = {
+            apiKey: "AIzaSyAgibpHmneI2Bcr2Vnrle04FFZrCyoJ7cQ",
+            authDomain: "walkie-talkie-5f7c0.firebaseapp.com",
+            databaseURL: "https://walkie-talkie-5f7c0-default-rtdb.firebaseio.com",
+            projectId: "walkie-talkie-5f7c0",
+            storageBucket: "walkie-talkie-5f7c0.firebasestorage.app",
+            messagingSenderId: "410805230789",
+            appId: "1:410805230789:web:f89019ff70b4b228bfa4ac"
+        };
+        firebase.initializeApp(firebaseConfig);
+        let db = firebase.database();
+
+        async function start() {
+            let frequency = document.getElementById("frequency").value;
+            if (!frequency) {
+                alert("Enter a frequency!");
+                return;
+            }
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            setupWebRTC(frequency);
+        }
+
+        function setupWebRTC(frequency) {
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+            });
+
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    db.ref("channels/" + frequency + "/candidates").push(event.candidate);
+                }
+            };
+
+            peerConnection.ontrack = event => {
+                let audio = new Audio();
+                audio.srcObject = event.streams[0];
+                audio.play();
+            };
+
+            db.ref("channels/" + frequency + "/offer").once("value", snapshot => {
+                if (snapshot.exists()) {
+                    let offer = snapshot.val();
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    peerConnection.createAnswer().then(answer => {
+                        peerConnection.setLocalDescription(answer);
+                        db.ref("channels/" + frequency + "/answer").set(answer);
+                    });
+                } else {
+                    peerConnection.createOffer().then(offer => {
+                        peerConnection.setLocalDescription(offer);
+                        db.ref("channels/" + frequency + "/offer").set(offer);
+                    });
+                }
+            });
+
+            db.ref("channels/" + frequency + "/answer").on("value", snapshot => {
+                if (snapshot.exists() && peerConnection.signalingState === "have-local-offer") {
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(snapshot.val()));
+                }
+            });
+
+            db.ref("channels/" + frequency + "/candidates").on("child_added", snapshot => {
+                let candidate = snapshot.val();
+                peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+        }
+    </script>
+</head>
+<body>
+    <h2>WebRTC Walkie-Talkie</h2>
+    <input type="text" id="frequency" placeholder="Enter Frequency">
+    <button onclick="start()">Join Frequency</button>
+</body>
+</html>
