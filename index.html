@@ -8,7 +8,7 @@
     <script>
         let localStream;
         let peerConnection;
-        let frequency;
+        let audioElement;
         let firebaseConfig = {
             apiKey: "AIzaSyAgibpHmneI2Bcr2Vnrle04FFZrCyoJ7cQ",
             authDomain: "walkie-talkie-5f7c0.firebaseapp.com",
@@ -22,23 +22,20 @@
         let db = firebase.database();
 
         async function start() {
-            frequency = document.getElementById("frequency").value;
+            let frequency = document.getElementById("frequency").value;
             if (!frequency) {
                 alert("Enter a frequency!");
                 return;
             }
-            
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            document.getElementById("status").innerText = "Connected to Frequency: " + frequency;
-            setupWebRTC();
+            setupWebRTC(frequency);
         }
 
-        function setupWebRTC() {
+        function setupWebRTC(frequency) {
             peerConnection = new RTCPeerConnection({
                 iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
             });
 
-            // Add local audio track
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.onicecandidate = event => {
@@ -49,12 +46,10 @@
 
             peerConnection.ontrack = event => {
                 console.log("Incoming audio stream");
-                let audio = document.getElementById("audio");
-                audio.srcObject = event.streams[0];
-                audio.play();
+                audioElement.srcObject = event.streams[0];
+                audioElement.play().catch(e => console.error("Playback error:", e));
             };
 
-            // Check if an offer already exists
             db.ref("channels/" + frequency + "/offer").once("value", snapshot => {
                 if (snapshot.exists()) {
                     let offer = snapshot.val();
@@ -71,37 +66,28 @@
                 }
             });
 
-            // Handle answer
             db.ref("channels/" + frequency + "/answer").on("value", snapshot => {
                 if (snapshot.exists() && peerConnection.signalingState === "have-local-offer") {
                     peerConnection.setRemoteDescription(new RTCSessionDescription(snapshot.val()));
                 }
             });
 
-            // Handle ICE candidates
             db.ref("channels/" + frequency + "/candidates").on("child_added", snapshot => {
                 let candidate = snapshot.val();
                 peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
             });
         }
 
-        function startTalking() {
-            console.log("Talking...");
-            localStream.getTracks().forEach(track => track.enabled = true);
-        }
-
-        function stopTalking() {
-            console.log("Stopped Talking...");
-            localStream.getTracks().forEach(track => track.enabled = false);
-        }
+        window.onload = function() {
+            audioElement = document.getElementById("audio");
+            audioElement.setAttribute("autoplay", "true");
+        };
     </script>
 </head>
 <body>
     <h2>WebRTC Walkie-Talkie</h2>
     <input type="text" id="frequency" placeholder="Enter Frequency">
     <button onclick="start()">Join Frequency</button>
-    <button onmousedown="startTalking()" onmouseup="stopTalking()">Talk</button>
-    <p id="status"></p>
     <audio id="audio" autoplay></audio>
 </body>
 </html>
